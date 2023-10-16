@@ -36,7 +36,11 @@ Assertion.prototype._ofString = function(actual, message) {
 	let result = new Result(!this._core.isInstanceString(actual), message);
 
 	if (result.error) {
-		let msg = message + " : actual type is " + (typeof actual);
+		let msg = message;
+		msg += " : actual type is " + (typeof actual);
+		if (actual.constructor) {
+			msg += " : constructor is " + actual.constructor.name;
+		}
 		result.setDetailMessages(this._getResultDetails(actual, "String", msg));
 	}
 	return result;
