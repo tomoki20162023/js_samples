@@ -1,7 +1,16 @@
-function MatcherCore() {}
-MatcherCore.prototype.isNull = function(obj) { return obj === null; };
-MatcherCore.prototype.isUndefined = function(obj) { return obj === undefined; };
-MatcherCore.prototype.isFalse = function(obj) {
+function MatcherCore() {
+	['a', 'an', 'of', 'is', 'to', 'be', 'does'].forEach(_context => this[_context] = _context);
+
+	this.instance = new InstanceMatcherCore();
+	this.type = new TypeMatcherCore();
+}
+
+MatcherCore.prototype.null = function(obj) { return obj === null; };
+MatcherCore.prototype.undefined = function(obj) { return obj === undefined; };
+MatcherCore.prototype.true = function(obj) { return obj === true; };
+MatcherCore.prototype.false = function(obj) { return obj === false; };
+
+MatcherCore.prototype.loseFalse = function(obj) {
 	if (obj instanceof Object) {
 		if (obj instanceof Boolean) return obj == false;
 		if (obj instanceof Number) {
@@ -10,41 +19,123 @@ MatcherCore.prototype.isFalse = function(obj) {
 	}
 	return Boolean(obj) == false;
 };
-MatcherCore.prototype.isTrue = function(obj) { return !this.isFalse(obj); };
+MatcherCore.prototype.loseTrue = function(obj) { return !this.loseFalse(obj); };
 
-MatcherCore.prototype.isInstanceObject = function(obj) { return obj instanceof Object; };
-MatcherCore.prototype.isInstanceBoolean = function(obj) { return obj instanceof Boolean; };
-MatcherCore.prototype.isInstanceArray = function(obj) { return obj instanceof Array; };
-MatcherCore.prototype.isInstanceString = function(obj) { return obj instanceof String; };
-MatcherCore.prototype.isInstanceNumber = function(obj) { return obj instanceof Number; };
+function InstanceMatcherCore() {
+	this.of = this;
+}
+[Object, Boolean, Array, String, Number, Function].forEach(function(cons) {
+	InstanceMatcherCore.prototype[cons.name] = function(obj) { return obj instanceof cons; };
+});
 
-MatcherCore.prototype.isTypeObject = function(obj) { return typeof(obj) === 'object'; };
-MatcherCore.prototype.isTypeUndefined = function(obj) { return typeof(obj) === 'undefined'; };
-MatcherCore.prototype.isTypeBoolean = function (obj) { return typeof(obj) === 'boolean'; };
-MatcherCore.prototype.isTypeString = function(obj) { return typeof(obj) === 'string'; };
-MatcherCore.prototype.isTypeNumber = function(obj) { return typeof(obj) === 'number'; };
+function TypeMatcherCore() {
+	this.of = this;
+}
+['object', 'undefined', 'boolean', 'string', 'number', 'function'].forEach(function(type) {
+	TypeMatcherCore.prototype[type] = function(obj) { return typeof(obj) === type; };
+});
 
-function Assertion() {
-	this._core = new MatcherCore();
-	this.of = {
-		parent: this
+function MatcherContext(_core) {
+	this._core = _core;
+	this.instanceof = {
+		context: this,
+		String: function(actual, message) { return this.context.isInstanceofString(actual, message); }
 	};
-	this.of.String = function(actual, message) { return this.parent._ofString(actual, message); };
+}
+
+MatcherContext.prototype._hasConstructor = function(obj) {
+	if (obj === undefined) return false;
+	if (obj === null) return false;
+	return true;
 };
 
-Assertion.prototype._ofString = function(actual, message) {
-	let result = new Result(!this._core.isInstanceString(actual), message);
+MatcherContext.prototype._getObjectDetailString = function(obj, name) {
+	let varName = (("string" == typeof name) || (name instanceof String))? name: "instance";
+	// 値のメッセージ
+	let msgValue = varName + " is " + JSON.stringify(obj);
+	// 型のメッセージ
+	let typeStr = typeof obj;
+	let msgType = "type: " + typeStr;
+	// コンストラクタのメッセージ
+	let msgConstructor = "";
+	if (["object", "function"].indexOf(typeStr) > -1) {
+		if (obj.constructor) {
+			msgConstructor = "constructor is " + obj.constructor.name;
+		}
+	}
 
+	let optionalMessages = [msgType];
+	if (msgConstructor) {
+		optionalMessages.push(msgConstructor);
+	}
+	return msgValue + "[" + optionalMessages.join(", ") + "]";
+};
+
+MatcherContext.prototype._getResultDetailsActual = function(actual) {
+	return this._getObjectDetailString(actual, "actual");
+};
+MatcherContext.prototype._getResultDetailsExpect = function(expect) {
+	return this._getObjectDetailString(expect, "expected");
+};
+MatcherContext.prototype._getResultDetails = function(actual, expected, message) {
+	let details = [];
+	details.push(message);
+	details.push("\n, " + this._getResultDetailsActual(actual));
+	details.push("\n, " + this._getResultDetailsExpect(expected));
+	return details;
+};
+MatcherContext.prototype._getResultDetailsConstructor = function(actual, constructor, message) {
+	let details = [];
+	details.push(message);
+	details.push("\n, " +this._getResultDetailsActual(actual));
+	details.push("\n, expected is " + constructor.name);
+	return details;
+};
+
+MatcherContext.prototype.instanceof = function(actual, constructor, message) {
+	let result = new Result(!this._core.isInstanceOf(actual, constructor), message);
 	if (result.error) {
 		let msg = message;
-		msg += " : actual type is " + (typeof actual);
 		if (actual.constructor) {
 			msg += " : constructor is " + actual.constructor.name;
 		}
-		result.setDetailMessages(this._getResultDetails(actual, "String", msg));
+		result.setDetailMessages(this._getResultDetails(actual, constructor.name, msg));
+	}
+	return result;
+}
+
+MatcherContext.prototype.Object = function(actual, message) {
+	return this._isObject(actual, message);
+}
+MatcherContext.prototype._isObject = function(actual, message) {
+	let result = new Result(!this._core.isInstanceObject(actual), message);
+
+	if (result.error) {
+		result.setDetailMessages(this._getResultDetailsConstructor(actual, Object, message));
 	}
 	return result;
 };
+
+MatcherContext.prototype.String = function(actual, message) {
+	return this._isString(actual, message);
+}
+MatcherContext.prototype._isString = function(actual, message) {
+	let result = new Result(!this._core.isInstanceString(actual), message);
+
+	if (result.error) {
+		result.setDetailMessages(this._getResultDetailsConstructor(actual, String, message));
+	}
+	return result;
+};
+
+function Assertion() {
+	this._core = new MatcherCore();
+	this._ctx = new MatcherContext(this._core);
+	this.is = this._ctx;
+	this.instance = this._ctx;
+	this.of = this._ctx;
+};
+
 
 Assertion.prototype._getResultDetails = function(actual, expected, message) {
 	let details = [];
@@ -55,11 +146,11 @@ Assertion.prototype._getResultDetails = function(actual, expected, message) {
 };
 
 
-Assertion.prototype.is = function(actual, expected, message) {
-	let result = new Result(actual != expected, message);
+Assertion.prototype.check = function(actual, expected, message) {
+	let result = new Result(!(actual == expected), message);
 
 	if (result.error) {
-		result.setDetailMessages(this._getResultDetails(actual, expected, message));
+		result.setDetailMessages(this._ctx._getResultDetails(actual, expected, message));
 	}
 	return result;
 };
